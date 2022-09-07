@@ -1,42 +1,44 @@
 import json
 import os
+import pickle
 import random
 from warnings import warn
-import pickle
+
 import ele
 import foyer
 import gsd
 import gsd.hoomd
+import hoomd
 import mbuild as mb
 import numpy as np
 import parmed
 import scipy.optimize
-from foyer import Forcefield
-from mbuild.lib.recipes import Polymer
 from mbuild.coordinate_transform import z_axis_transform
 from mbuild.formats.hoomd_snapshot import to_hoomdsnapshot
+from mbuild.lib.recipes import Polymer
+from polybinder.library import COMPOUND_DIR, FF_DIR
+from polybinder.utils import base_units
 from scipy.special import gamma
 
-from polybinder.library import COMPOUND_DIR, SYSTEM_DIR, FF_DIR
-from polybinder.utils import base_units
+from grits import CG_Compound
 
 units = base_units.base_units()
 
 
 class System:
     def __init__(
-        self,
-        density,
-        molecule=None,
-        n_compounds=None,
-        polymer_lengths=None,
-        para_weight=None,
-        monomer_sequence=None,
-        sample_pdi=False,
-        pdi=None,
-        Mn=None,
-        Mw=None,
-        seed=24,
+            self,
+            density,
+            molecule=None,
+            n_compounds=None,
+            polymer_lengths=None,
+            para_weight=None,
+            monomer_sequence=None,
+            sample_pdi=False,
+            pdi=None,
+            Mn=None,
+            Mw=None,
+            seed=24,
     ):
         """
         This class handles the system parameters such as number
@@ -97,14 +99,14 @@ class System:
         self.para = 0
         self.meta = 0
         self.molecule_sequences = []
-        
+
         if self.molecule != "PEKK":
             if para_weight not in [1.0, None] or "M" in str(monomer_sequence):
                 raise ValueError(
-                        "The meta backbone bonding configuraiton "
-                        "is only supported for the PEKK molecule. "
-                        f"Since you are using {self.molecule} either use "
-                        "para_weight = 1.0 or monomer_sequence = 'P'."
+                    "The meta backbone bonding configuraiton "
+                    "is only supported for the PEKK molecule. "
+                    f"Since you are using {self.molecule} either use "
+                    "para_weight = 1.0 or monomer_sequence = 'P'."
                 )
 
         if self.monomer_sequence and self.para_weight:
@@ -118,7 +120,7 @@ class System:
 
         if sample_pdi:
             self.sample_from_pdi(
-                    n_compounds, pdi, Mn, Mw,
+                n_compounds, pdi, Mn, Mw,
             )
         elif not sample_pdi and n_compounds != None:
             if not isinstance(n_compounds, list):
@@ -133,7 +135,7 @@ class System:
 
             if len(self.n_compounds) != len(self.polymer_lengths):
                 raise ValueError(
-                        "n_compounds and polymer_lengths must be equal length"
+                    "n_compounds and polymer_lengths must be equal length"
                 )
 
     def sample_from_pdi(
@@ -153,12 +155,12 @@ class System:
             )
         pdi_arg_sum = sum([x is not None for x in [pdi, Mn, Mw]])
         assert (
-            pdi_arg_sum >= 2
+                pdi_arg_sum >= 2
         ), "At least two of [pdi, Mn, Mw] must be given."
         if pdi_arg_sum == 3:
             # special case, make sure that pdi = Mw / Mn
             assert (
-                abs(pdi - (Mw / Mn)) < 1e-7
+                    abs(pdi - (Mw / Mn)) < 1e-7
             ), "PDI value does not match Mn and Mw values."
         else:
             if Mn is None:
@@ -178,11 +180,11 @@ class System:
         if len(samples[samples == 0]) > 0:
             samples[samples == 0] = 1
             warn("Polymer lengths of 0 were returned from sampling. "
-                "They were replaced a length of 1"
-            )
+                 "They were replaced a length of 1"
+                 )
         self.polymer_lengths = sorted(list(set(samples)))
         self.n_compounds = [
-                list(samples).count(x) for x in self.polymer_lengths
+            list(samples).count(x) for x in self.polymer_lengths
         ]
 
     def _weibull_k_expression(self, x):
@@ -205,11 +207,11 @@ class System:
         recovered_lambda = self._weibull_lambda_expression(recovered_k)
         mass_dict = {
             "sampler": lambda N: recovered_lambda
-            * np.random.weibull(recovered_k, size=N),
+                                 * np.random.weibull(recovered_k, size=N),
             "functional_form": lambda x: recovered_k
-            / recovered_lambda
-            * (x / recovered_lambda) ** (recovered_k - 1)
-            * np.exp(-((x / recovered_lambda) ** recovered_k)),
+                                         / recovered_lambda
+                                         * (x / recovered_lambda) ** (recovered_k - 1)
+                                         * np.exp(-((x / recovered_lambda) ** recovered_k)),
         }
         return mass_dict
 
@@ -222,6 +224,7 @@ class Initializer:
             forcefield="gaff",
             charges=None,
             remove_hydrogens=False,
+            rigid_bead_smiles=None,
             save_parmed=True,
             parmed_dir="pmd_structures",
             **kwargs
@@ -270,16 +273,17 @@ class Initializer:
         self.system_mass = 0
         self.target_box = None
         self.charges = charges
+        self.rigid_bead_smiles = rigid_bead_smiles
         self.save_parmed = save_parmed
         if self.save_parmed:
             os.makedirs(parmed_dir, exist_ok=True)
             self.pmd_pickle_path = os.path.join(
-                    parmed_dir,
-                    'pmd_{}_n{}_l{}'.format(
-                        self.system_parms.molecule,
-                        self.system_parms.n_compounds,
-                        self.system_parms.polymer_lengths
-                    )
+                parmed_dir,
+                'pmd_{}_n{}_l{}'.format(
+                    self.system_parms.molecule,
+                    self.system_parms.n_compounds,
+                    self.system_parms.polymer_lengths
+                )
             )
 
         self.mb_compounds = self._generate_compounds()
@@ -291,11 +295,11 @@ class Initializer:
             system_init = self.crystal(**kwargs)
         else:
             raise ValueError(
-                    "Valid system types are:"
-                    "'pack'"
-                    "'stack'"
-                    "'crystal'"
-                    f"You passed in {system_type}"
+                "Valid system types are:"
+                "'pack'"
+                "'stack'"
+                "'crystal'"
+                f"You passed in {system_type}"
             )
 
         if self.forcefield:
@@ -310,8 +314,12 @@ class Initializer:
                  "The default cubic volume (Lx=Ly=Lz) will be used. "
                  "See the `set_target_box()` function to set a non-cubic "
                  "target box."
-            )
+                 )
             self.set_target_box()
+
+        if self.rigid_bead_smiles:
+            print('make rigid snap...')
+            self.snapshot = self._make_rigid_snapshot()
 
     def pack(self, expand_factor=7):
         """Uses PACKMOL via mBuild to randomlly fill a box
@@ -351,7 +359,7 @@ class Initializer:
         system = mb.Compound()
         for idx, comp in enumerate(self.mb_compounds):
             z_axis_transform(comp)
-            comp.translate(np.array([separation,0,0])*idx)
+            comp.translate(np.array([separation, 0, 0]) * idx)
             system.add(comp)
 
         system.box = mb.box.Box(self.target_box)
@@ -386,18 +394,18 @@ class Initializer:
             used as a multiplier of the bounding box z length.
 
         """
-        if len(self.mb_compounds) != n*n*2:
+        if len(self.mb_compounds) != n * n * 2:
             raise ValueError(
-                    "The crystal is built as n x n unit cells "
-                    "with each unit cell containing 2 molecules. "
-                    "The number of molecules should equal 2*n*n"
+                "The crystal is built as n x n unit cells "
+                "with each unit cell containing 2 molecules. "
+                "The number of molecules should equal 2*n*n"
             )
         if self.system_parms.para_weight not in [None, 1.0, 0.0]:
             warn("Initializing crystalline systems may not work well "
                  "when usingg random co-polymers "
                  "(e.g. overlapping particles). You may want to "
                  "use `monomer_sequence` as opposed to `para_weight'."
-            )
+                 )
         next_idx = 0
         crystal = mb.Compound()
         for i in range(n):
@@ -405,16 +413,16 @@ class Initializer:
             for j in range(n):
                 try:
                     comp_1 = self.mb_compounds[next_idx]
-                    comp_2 = self.mb_compounds[next_idx+1]
-                    translate_by = np.array(vector)*(b, a, 0)
+                    comp_2 = self.mb_compounds[next_idx + 1]
+                    translate_by = np.array(vector) * (b, a, 0)
                     comp_2.translate(translate_by)
-                    unit_cell= mb.Compound(subcompounds=[comp_1, comp_2])
-                    unit_cell.translate((0, a*j, 0))
+                    unit_cell = mb.Compound(subcompounds=[comp_1, comp_2])
+                    unit_cell.translate((0, a * j, 0))
                     layer.add(unit_cell)
                     next_idx += 2
                 except IndexError:
                     pass
-            layer.translate((b*i, 0, 0))
+            layer.translate((b * i, 0, 0))
             crystal.add(layer)
 
         bounding_box = np.array(crystal.get_boundingbox().lengths)
@@ -426,9 +434,9 @@ class Initializer:
         crystal.box = mb.box.Box(bounding_box)
         # Center in the box
         crystal.translate_to(
-                (crystal.box.Lx / 2,
-                crystal.box.Ly / 2,
-                crystal.box.Lz / 2)
+            (crystal.box.Lx / 2,
+             crystal.box.Ly / 2,
+             crystal.box.Lz / 2)
         )
         return crystal
 
@@ -461,8 +469,8 @@ class Initializer:
 
         if self.forcefield is not None:
             raise ValueError(
-                    "If you want to coarse grain, set forcefield=None"
-                    " when initializing the system."
+                "If you want to coarse grain, set forcefield=None"
+                " when initializing the system."
             )
         if self.remove_hydrogens:
             hydrogens = [h for h in self.system.particles_by_element("H")]
@@ -470,21 +478,21 @@ class Initializer:
                 self.system.remove(h)
 
         aa_snap, refs = to_hoomdsnapshot(
-                self.system, ref_distance=ref_distance, ref_mass=ref_mass
+            self.system, ref_distance=ref_distance, ref_mass=ref_mass
         )
         # Order the bond group; required by CGing package
         bond_array = aa_snap.bonds.group
         sorted_bond_array = bond_array[bond_array[:, 0].argsort()]
         for idx, bond_group in enumerate(sorted_bond_array):
-            aa_snap.bonds.group[idx] = bond_group 
-        # Create a gsd.hoomd.Snapshot() of the atomistic system
+            aa_snap.bonds.group[idx] = bond_group
+            # Create a gsd.hoomd.Snapshot() of the atomistic system
         sim = hoomd.Simulation(device=hoomd.device.auto_select())
         sim.create_state_from_snapshot(aa_snap)
         hoomd.write.GSD.write(state=sim.state, filename="atomistic_gsd.gsd")
         # Use polybinderCG to create a coarse-grained snapshot
         cg_system = cg.System(
-                gsd_file="atomistic_gsd.gsd",
-                compound=self.system_parms.molecule
+            gsd_file="atomistic_gsd.gsd",
+            compound=self.system_parms.molecule
         )
         for idx, mol in enumerate(cg_system.molecules):
             mol.sequence = self.system_parms.molecule_sequences[idx]
@@ -494,33 +502,33 @@ class Initializer:
                 for mon in cg_system.monomers():
                     mon.generate_components(bead_mapping)
             except KeyError:
-                    raise ValueError(
-                            f"The index mapping scheme {bead_mapping} for "
-                            f"{self.system_parms.molecule} is not found in "
-                            "polybinderCG."
-                    )
+                raise ValueError(
+                    f"The index mapping scheme {bead_mapping} for "
+                    f"{self.system_parms.molecule} is not found in "
+                    "polybinderCG."
+                )
             use_monomers = False
             use_segments = False
             use_components = True
 
         elif segment_length:
             raise ValueError(
-                    "Coarse-graining using segments is not yet supported"
+                "Coarse-graining using segments is not yet supported"
             )
             use_monomers = False
-            use_segments = True 
-            use_components = False 
+            use_segments = True
+            use_components = False
         else:
             use_monomers = True
             use_segments = False
             use_components = False
-        
+
         cg_snap = cg_system.coarse_grain_snap(
-                use_monomers=use_monomers,
-                use_segments=use_segments,
-                use_components=use_components
+            use_monomers=use_monomers,
+            use_segments=use_segments,
+            use_components=use_components
         )
-        self.system = cg_snap 
+        self.system = cg_snap
 
     def set_target_box(
             self,
@@ -547,11 +555,11 @@ class Initializer:
             Lx = Ly = Lz = self._calculate_L()
         else:
             constraints = np.array([x_constraint, y_constraint, z_constraint])
-            fixed_L = constraints[np.where(constraints!=None)]
-            #Conv from nm to cm for _calculate_L
+            fixed_L = constraints[np.where(constraints != None)]
+            # Conv from nm to cm for _calculate_L
             fixed_L /= units["cm_to_nm"]
-            L = self._calculate_L(fixed_L = fixed_L)
-            constraints[np.where(constraints==None)] = L
+            L = self._calculate_L(fixed_L=fixed_L)
+            constraints[np.where(constraints == None)] = L
             Lx, Ly, Lz = constraints
         self.target_box = np.array([Lx, Ly, Lz])
 
@@ -573,13 +581,13 @@ class Initializer:
         the target density.
         """
         M = self.system_mass * units["amu_to_g"]  # grams
-        vol = (M / self.system_parms.density) # cm^3
+        vol = (M / self.system_parms.density)  # cm^3
         if fixed_L is None:
-            L = vol**(1/3)
+            L = vol ** (1 / 3)
         else:
             L = vol / np.prod(fixed_L)
-            if len(fixed_L) == 1: # L is cm^2
-                L = L**(1/2)
+            if len(fixed_L) == 1:  # L is cm^2
+                L = L ** (1 / 2)
         L *= units["cm_to_nm"]  # convert cm to nm
         return L
 
@@ -611,7 +619,7 @@ class Initializer:
                 )
                 polymer.name = f"{mol_sequence}_{length}mer"
                 mb_compounds.append(polymer)
-                self.residues.extend([polymer.name]*n)
+                self.residues.extend([polymer.name] * n)
                 self.system_parms.molecule_sequences.append(mol_sequence)
                 for i in range(n - 1):
                     _clone = mb.clone(polymer)
@@ -635,7 +643,7 @@ class Initializer:
                     self.system_parms.meta += mol_sequence.count("M")
             mass = n * sum(
                 [ele.element_from_symbol(p.name).mass
-                for p in polymer.particles()]
+                 for p in polymer.particles()]
             )
             self.system_mass += mass  # amu
         return mb_compounds
@@ -652,9 +660,9 @@ class Initializer:
             forcefield = foyer.Forcefield(forcefield_files=ff_path)
 
         typed_system = forcefield.apply(
-                untyped_system,
-                verbose=True,
-                assert_dihedral_params=False
+            untyped_system,
+            verbose=True,
+            assert_dihedral_params=False
         )
         # Add charges to parmed struc from mbuild comp
         if self.charges:
@@ -668,7 +676,7 @@ class Initializer:
             print(f"Adjusting each charge by +/- {adjust}")
             for p, a in zip(untyped_system.particles(), typed_system.atoms):
                 charge = p.charge
-                charge = charge - (abs(charge) * (net_charge/abs_net))
+                charge = charge - (abs(charge) * (net_charge / abs_net))
                 assert np.sign(charge) == np.sign(p.charge)
                 a.charge = charge
             net_charge = sum([a.charge for a in typed_system.atoms])
@@ -685,10 +693,10 @@ class Initializer:
         Otherwise, creates the parmed structure and saves it to file using pickle.
         """
         if self.pmd_pickle_path and os.path.exists(self.pmd_pickle_path):
-                # load parmed from file
-                f = open(self.pmd_pickle_path, "rb")
-                self.system = pickle.load(f)
-                f.close()
+            # load parmed from file
+            f = open(self.pmd_pickle_path, "rb")
+            self.system = pickle.load(f)
+            f.close()
         else:
             self.system = self._apply_ff(untyped_system)
             if self.pmd_pickle_path:
@@ -708,9 +716,43 @@ class Initializer:
             bonded_atom.charge += h.charge
 
         self.system.strip(
-                [a.atomic_number == 1 for a in self.system.atoms]
+            [a.atomic_number == 1 for a in self.system.atoms]
         )
         assert np.allclose(init_net_charge, self.net_charge, atol=1e-4)
+
+    def _make_rigid_snapshot(self):
+        pps_comp = self.mb_compounds[0]
+        pps_comp_cg = CG_Compound(pps_comp, self.rigid_bead_smiles)
+        beads_idx_dict = {}
+        for k, base_idx in pps_comp_cg.mapping.items():
+            bead_name = k.split('...')[0]
+            base_idx = np.array(list(map(np.array, base_idx)))
+            all_bead_idx = base_idx
+            for i in range(1, self.system_parms.n_compounds[0]):
+                all_bead_idx = np.append(all_bead_idx, base_idx + (pps_comp.n_particles * i), axis=0)
+            beads_idx_dict[bead_name] = all_bead_idx.tolist()
+
+        self.rigid_bead_names = list(beads_idx_dict.keys())
+        self.system_rigid_ids = np.full(len(self.system.atoms), -1)
+        rigid_id = 0
+        bead_type_ids = []
+        for i, bead_type in enumerate(beads_idx_dict.keys()):
+            for idx in beads_idx_dict[bead_type]:
+                self.system_rigid_ids[idx] = rigid_id
+                rigid_id += 1
+                bead_type_ids.append(i)
+
+        rigid_bodies = set(self.system_rigid_ids)
+        rigid_bodies.remove(-1)
+        # Total number of rigid particles
+        N_mols = len(rigid_bodies)
+        init_snap = hoomd.Snapshot()
+        # Create place holder spots in the snapshot for rigid centers
+        init_snap.particles.types = self.rigid_bead_names
+        init_snap.particles.N = N_mols
+        init_snap.particles.typeid[:] = bead_type_ids
+
+        return init_snap
 
 
 class Fused:
@@ -724,14 +766,14 @@ class Fused:
         self.system_type = "interface"
         system = _gsd_to_mbuild(self.gsd_file, self.ref_distance)
         system.box = mb.box.Box.from_mins_maxs_angles(
-                mins=(0,0,0),
-                maxs=system.get_boundingbox().lengths,
-                angles = (90, 90, 90)
+            mins=(0, 0, 0),
+            maxs=system.get_boundingbox().lengths,
+            angles=(90, 90, 90)
         )
         system.translate_to(
-                [system.box.Lx / 2,
-                system.box.Ly / 2,
-                system.box.Lz / 2,]
+            [system.box.Lx / 2,
+             system.box.Ly / 2,
+             system.box.Lz / 2, ]
         )
 
         ff_path = f"{FF_DIR}/gaff-nosmarts.xml"
@@ -760,12 +802,13 @@ class Interface:
         "x", "y" or "z"
 
     """
+
     def __init__(
-        self,
-        slabs,
-        ref_distance,
-        gap=0.1,
-        weld_axis="x"
+            self,
+            slabs,
+            ref_distance,
+            gap=0.1,
+            weld_axis="x"
     ):
         self.system_type = "interface"
         self.ref_distance = ref_distance
@@ -777,14 +820,14 @@ class Interface:
             slab_files = slabs * 2
 
         axis_dict = {
-                "x": np.array([1,0,0]),
-                "y": np.array([0,1,0]),
-                "z": np.array([0,0,1])
+            "x": np.array([1, 0, 0]),
+            "y": np.array([0, 1, 0]),
+            "z": np.array([0, 0, 1])
         }
         weld_axis = weld_axis.lower()
         assert weld_axis in ["x", "y", "z"], (
-                    "Choose the axis of the interface. "
-                    "Valid choices are 'x', 'y', 'z'"
+            "Choose the axis of the interface. "
+            "Valid choices are 'x', 'y', 'z'"
         )
         trans_axis = axis_dict[weld_axis]
 
@@ -794,29 +837,30 @@ class Interface:
         interface.add(new_child=slab_1, label="left")
         interface.add(new_child=slab_2, label="right")
         _len = getattr(interface.get_boundingbox(), f"L{weld_axis}")
-        interface["left"].translate(-trans_axis*(_len+gap))
+        interface["left"].translate(-trans_axis * (_len + gap))
         system_box = mb.box.Box.from_mins_maxs_angles(
-                mins=(0, 0, 0),
-                maxs = interface.get_boundingbox().lengths,
-                angles = (90, 90, 90)
+            mins=(0, 0, 0),
+            maxs=interface.get_boundingbox().lengths,
+            angles=(90, 90, 90)
         )
         current_len = getattr(system_box, f"L{weld_axis}")
         setattr(system_box,
                 f"_L{weld_axis}",
-                current_len + (2*self.ref_distance*1.1225)
-        )
-        #system_box._Lx += 2 * self.ref_distance * 1.1225
+                current_len + (2 * self.ref_distance * 1.1225)
+                )
+        # system_box._Lx += 2 * self.ref_distance * 1.1225
         interface.box = system_box
         # Center in the adjusted box
         interface.translate_to(
-                [interface.box.Lx / 2,
-                interface.box.Ly / 2,
-                interface.box.Lz / 2,]
+            [interface.box.Lx / 2,
+             interface.box.Ly / 2,
+             interface.box.Lz / 2, ]
         )
 
         ff_path = f"{FF_DIR}/gaff-nosmarts.xml"
         forcefield = foyer.Forcefield(forcefield_files=ff_path)
         self.system = forcefield.apply(interface)
+
 
 def _gsd_to_mbuild(gsd_file, ref_distance):
     element_mapping = {
@@ -915,7 +959,7 @@ def build_molecule(
 
     if sequence == "random":
         monomer_sequence = "".join(random_sequence(para_weight, length))
-    else: # Generate sequence that matches polymer length
+    else:  # Generate sequence that matches polymer length
         n = length // len(sequence)
         monomer_sequence = sequence * n
         monomer_sequence += sequence[:(length - len(monomer_sequence))]
@@ -940,46 +984,46 @@ def build_molecule(
         except KeyError:
             print("No file is available for this compound")
 
-    if len(set(monomer_sequence)) == 2: # Copolymer
+    if len(set(monomer_sequence)) == 2:  # Copolymer
         compound.add_monomer(
-                meta,
-                mol_dict["meta_bond_indices"],
-                mol_dict["bond_distance"],
-                mol_dict["bond_orientation"],
-                replace=True
+            meta,
+            mol_dict["meta_bond_indices"],
+            mol_dict["bond_distance"],
+            mol_dict["bond_orientation"],
+            replace=True
         )
         compound.add_monomer(
-                para,
-                mol_dict["para_bond_indices"],
-                mol_dict["bond_distance"],
-                mol_dict["bond_orientation"],
-                replace=True
+            para,
+            mol_dict["para_bond_indices"],
+            mol_dict["bond_distance"],
+            mol_dict["bond_orientation"],
+            replace=True
         )
     else:
-        if monomer_sequence[0] == "P": # Only para
+        if monomer_sequence[0] == "P":  # Only para
             compound.add_monomer(para,
-                    mol_dict["para_bond_indices"],
-                    mol_dict["bond_distance"],
-                    mol_dict["bond_orientation"],
-                    replace=True
-            )
-        elif monomer_sequence[0] == "M": # Only meta
+                                 mol_dict["para_bond_indices"],
+                                 mol_dict["bond_distance"],
+                                 mol_dict["bond_orientation"],
+                                 replace=True
+                                 )
+        elif monomer_sequence[0] == "M":  # Only meta
             compound.add_monomer(meta,
-                    mol_dict["meta_bond_indices"],
-                    mol_dict["bond_distance"],
-                    mol_dict["bond_orientation"],
-                    replace=True
-            )
+                                 mol_dict["meta_bond_indices"],
+                                 mol_dict["bond_distance"],
+                                 mol_dict["bond_orientation"],
+                                 replace=True
+                                 )
 
     compound.build(n=1, sequence=monomer_sequence, add_hydrogens=True)
     # Rotate to align with z-axis; important for initializing ordered systems
     # Rotations are hard-coded based on the mol2 files in the library
     if molecule == "PEKK":
-        compound.rotate(around=[0,1,0], theta=-0.20)
-        compound.rotate(around=[1,0,0], theta=0.15)
+        compound.rotate(around=[0, 1, 0], theta=-0.20)
+        compound.rotate(around=[1, 0, 0], theta=0.15)
     if molecule == "PPS":
-        compound.rotate(around=[0,1,0], theta=0.05)
-        compound.rotate(around=[1,0,0], theta=-0.010)
+        compound.rotate(around=[0, 1, 0], theta=0.05)
+        compound.rotate(around=[1, 0, 0], theta=-0.010)
     return compound, monomer_sequence
 
 
