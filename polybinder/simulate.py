@@ -165,11 +165,12 @@ class Simulation:
         self.restart = restart
         self.wall_time_limit = wall_time_limit
         self.system = system.system
+        self.system_rigid_ids = system.system_rigid_ids
+        self.rigid_bead_names = system.rigid_bead_names
         self.ran_shrink = False
         self.is_rigid = is_rigid
         self.remove_const_interact = remove_const_interact
         self.logs_path = logs_path
-
         # Coarsed-grained related parameters, system is a gsd.hoomd.Snapshot 
         if isinstance(self.system, gsd.hoomd.Snapshot):
             assert ref_values != None, (
@@ -272,20 +273,16 @@ class Simulation:
             self.forcefields.append(self.lj_walls)
 
         # Default nlist is Cell, change to Tree if needed
-        if isinstance(self.nlist, hoomd.md.nlist.Tree):
-            exclusions = self.forcefields[0].nlist.exclusions
-            self.forcefields[0].nlist = self.nlist(buffer=0.4)
-            self.forcefields[0].nlist.exclusions = exclusions
-
-            # Set up remaining hoomd objects
-        self._all = hoomd.filter.All()
-        gsd_writer, table_file, = self._hoomd_writers(
-            group=self._all, sim=self.sim, forcefields=self.forcefields
+        self._all = hoomd.filter.Rigid(("center", "free"))
+        gsd_writer, table_file, h5_writer = self._hoomd_writers(
+                group=self._all, sim=self.sim, forcefields=self.forcefields
         )
         self.sim.operations.writers.append(gsd_writer)
         self.sim.operations.writers.append(table_file)
-        self.integrator = hoomd.md.Integrator(dt=self.dt)
+        self.sim.operations.writers.append(h5_writer)
+        self.integrator = hoomd.md.Integrator(dt=self.dt, integrate_rotational_dof=True)
         self.integrator.forces = self.forcefields
+        self.integrator.rigid = self.rigid
         self.sim.operations.add(self.integrator)
 
     def temp_ramp(
@@ -686,7 +683,7 @@ class Simulation:
         else:
             writemode = "w"
         gsd_writer = hoomd.write.GSD(
-            filename="sim_traj.gsd",
+            filename=self.logs_path + '/'+ "sim_traj.gsd",
             trigger=hoomd.trigger.Periodic(
                 period=int(self.gsd_write), phase=0
             ),
@@ -705,14 +702,19 @@ class Simulation:
             logger.add(f, quantities=["energy"])
 
         table_file = hoomd.write.Table(
-            output=open("sim_traj.txt", mode=f"{writemode}", newline="\n"),
+            output=open(self.logs_path + '/'+ "sim_traj.txt", mode=f"{writemode}", newline="\n"),
             trigger=hoomd.trigger.Periodic(
                 period=int(self.log_write), phase=0
             ),
             logger=logger,
             max_header_len=None,
         )
-        return gsd_writer, table_file
+
+        h5_writer = hoomd.write.CustomWriter(action=RigidDataWriter(filename=self.logs_path + '/'+ "rigid_traj.h5",
+                                                                    mode="w", N_rigids=self.N_rigids),
+                                             trigger=int(self.log_write))
+
+        return gsd_writer, table_file, h5_writer
 
     def _create_hoomd_sim_from_snapshot(self):
         """Creates needed hoomd objects.

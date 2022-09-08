@@ -221,6 +221,7 @@ class Initializer:
             self,
             system,
             system_type,
+            bead_mass=72.0659,
             forcefield="gaff",
             charges=None,
             remove_hydrogens=False,
@@ -465,7 +466,12 @@ class Initializer:
 
         """
         import hoomd
-        import polybinderCG.coarse_grain as cg
+        try:
+            from polybinderCG.coarse_grain import System
+        except ImportError:
+            raise ImportError(
+                "polybinderCG must be installed to use coarse-graining features"
+            )
 
         if self.forcefield is not None:
             raise ValueError(
